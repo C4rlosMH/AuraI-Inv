@@ -116,6 +116,9 @@ export default function Home() {
   const creditoDisponible = stats.totalCreditLimit - deudaActual;
   const utilizacion = stats.totalCreditLimit > 0 ? (deudaActual / stats.totalCreditLimit) : 0;
 
+  // NUEVO CÁLCULO: Liquidez pura (Banco + Efectivo + Fondos)
+  const totalLiquidez = stats.bankBalance + stats.cashBalance + stats.funds.reduce((acc, f) => acc + f.balance, 0);
+
   let creditGraphColor = "#34d399"; 
   let creditTextColor = "text-emerald-400";
 
@@ -160,16 +163,26 @@ export default function Home() {
         </div>
       )}
 
-      {/* 2. Patrimonio Consolidado Centrado (Limpio) */}
+      {/* 2. Liquidez Principal y Patrimonio Secundario */}
       <div className={styles.netWorthContainer}>
-        <p className={styles.headerLabel}>Patrimonio Neto</p>
+        <p className={styles.headerLabel}>Liquidez Disponible</p>
         <div className={styles.netWorthWrapper}>
           <h1 className={styles.headerAmount}>
-            {showBalance ? formatMXN(stats.netWorth) : '***'}
+            {showBalance ? formatMXN(totalLiquidez) : '***'}
           </h1>
           <button onClick={() => setShowBalance(!showBalance)} className={styles.toggleButton}>
             {showBalance ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
           </button>
+        </div>
+        
+        {/* Patrimonio Neto Relegado a Indicador Secundario */}
+        <div className="mt-3 flex items-center justify-center gap-2">
+          <span className="text-slate-500 text-[10px] font-bold uppercase tracking-widest">
+            Patrimonio Neto:
+          </span>
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${stats.netWorth >= 0 ? 'bg-slate-800 text-slate-300' : 'bg-rose-500/10 text-rose-400'}`}>
+            {showBalance ? formatMXN(stats.netWorth) : '***'}
+          </span>
         </div>
       </div>
 
