@@ -6,9 +6,10 @@ import { seedInitialCatalog } from '../../services/catalogService';
 import { getRecentTransactions } from '../../services/ledgerService'; 
 import { formatMXN } from '../../utils/formatters';
 import { styles } from './Home.styles';
+import { accounts } from '../../db/schema';
 
 // Componentes
-import { AccountDetails } from '../details/AccountDetails';
+import { AccountDetails } from '../../components/details/AccountDetails';
 import { DebtManager } from '../../components/details/DebtManager';
 import { SummaryCard } from '../../components/home/SummaryCard';
 import { Sparkline } from '../../components/home/Sparkline';
@@ -29,9 +30,25 @@ export default function Home() {
   const [showSalaryAlert, setShowSalaryAlert] = useState(false);
   const [showDebtManager, setShowDebtManager] = useState(false);
   const [showInvManager, setShowInvManager] = useState(false);
+  const [gbmId, setGbmId] = useState<string | null>(null);
+  const [cryptoId, setCryptoId] = useState<string | null>(null);
   
   // Estado único para el historial reciente
   const [recentHistory, setRecentHistory] = useState<any[]>([]);
+
+  useEffect(() => {
+  const fetchInvIds = async () => {
+    if (isReady && db) {
+      const accs = await db.select().from(accounts);
+      const gbm = accs.find((a: any) => a.type === 'INVERSION' && (a.name.toLowerCase().includes('inversion') || a.name.toLowerCase().includes('gbm')));
+      const crypto = accs.find((a: any) => a.type === 'INVERSION' && (a.name.toLowerCase().includes('cripto') || a.name.toLowerCase().includes('crypto')));
+
+      if (gbm) setGbmId(gbm.id);
+      if (crypto) setCryptoId(crypto.id);
+    }
+  };
+  fetchInvIds();
+}, [isReady, db]);
 
   // Inicialización de la base de datos
   useEffect(() => {
@@ -80,7 +97,7 @@ export default function Home() {
     setShowSalaryAlert(false);
   };
 
-const handleAcceptAlert = () => {
+  const handleAcceptAlert = () => {
     handleDismissAlert();
     setActiveModal('DEPOSITO'); // Esto abrirá el modal coherente con la opción de dividir
   };
@@ -171,7 +188,7 @@ const handleAcceptAlert = () => {
         </button>
       </div>
 
-      {/* 4. Cuentas Operativas */}
+      {/* 4. Cuentas Operativas y Crédito */}
       <div className="grid grid-cols-2 gap-4 mb-6">
         <SummaryCard 
           label="Bóveda (Banco)" 
@@ -179,7 +196,7 @@ const handleAcceptAlert = () => {
           color="#38bdf8"
           showBalance={showBalance} 
           history={stats.historyBank} 
-          onClick={() => setSelectedAccountId(stats.bankId)} 
+          onClick={() => stats.bankId && setSelectedAccountId(stats.bankId)} 
         />
         <SummaryCard 
           label="Caja (Efectivo)" 
@@ -187,7 +204,7 @@ const handleAcceptAlert = () => {
           color="#94a3b8"
           showBalance={showBalance} 
           history={stats.historyCash}
-          onClick={() => setSelectedAccountId(stats.cashId)} 
+          onClick={() => stats.cashId && setSelectedAccountId(stats.cashId)} 
         />
 
         {/* Tarjeta de Crédito Gamificada */}
@@ -226,11 +243,16 @@ const handleAcceptAlert = () => {
 
       {/* 5. INVERSIONES BURSÁTILES */}
       <div className="bg-slate-800/30 border border-slate-700/50 rounded-3xl p-5 mb-6">
-        
+
         {/* CABECERA (Total del Portafolio) */}
         <div className="flex justify-between items-start mb-6">
           <div>
-            <span className="text-slate-400 text-[10px] font-bold tracking-widest uppercase">Portafolio de Inversión</span>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-slate-400 text-[10px] font-bold tracking-widest uppercase">Portafolio de Inversión</span>
+              <button onClick={() => setShowInvManager(true)} className="p-1 text-slate-500 hover:text-emerald-400 transition-colors">
+                <Settings className="w-3.5 h-3.5" />
+              </button>
+            </div>
             <div className="text-white text-2xl font-bold mt-1">
               {showBalance ? formatMXN(stats.totalInvested) : '***'}
             </div>
@@ -243,9 +265,10 @@ const handleAcceptAlert = () => {
         <div className="grid grid-cols-2 gap-3">
           {/* TARJETA GBM+ */}
           <div 
-            onClick={() => setShowInvManager(true)} // <-- Tocar GBM abre el gestor de liquidez (Disp)
+            onClick={() => gbmId && setSelectedAccountId(gbmId)} 
             className="bg-slate-900/50 pt-5 rounded-2xl border border-slate-700/50 flex flex-col justify-between overflow-hidden cursor-pointer hover:bg-slate-900/70 transition-colors"
           >
+            {/* ... todo el contenido de la tarjeta GBM (se queda igual) ... */}
             <div className="px-4 z-10">
               <div className="flex justify-between items-center mb-1.5">
                 <span className="text-slate-400 text-[10px] font-bold tracking-widest uppercase">GBM+</span>
@@ -267,10 +290,12 @@ const handleAcceptAlert = () => {
             </div>
           </div>
 
+          {/* TARJETA CRYPTO */}
           <div 
-            onClick={() => setShowInvManager(true)} // <-- Tocar Crypto también abre el gestor
+            onClick={() => cryptoId && setSelectedAccountId(cryptoId)}
             className="bg-slate-900/50 pt-5 rounded-2xl border border-slate-700/50 flex flex-col justify-between overflow-hidden cursor-pointer hover:bg-slate-900/70 transition-colors"
           >
+            {/* ... todo el contenido de la tarjeta Crypto (se queda igual) ... */}
             <div className="px-4 z-10">
               <div className="flex justify-between items-center mb-1.5">
                 <span className="text-slate-400 text-[10px] font-bold tracking-widest uppercase">Crypto</span>
@@ -306,7 +331,15 @@ const handleAcceptAlert = () => {
         ) : (
           <div className={stats.funds.length === 1 ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
             {stats.funds.map((fondo: any) => (
-              <SummaryCard key={fondo.id} label={fondo.name} amount={fondo.balance} color="#3b82f6" showBalance={showBalance} history={fondo.history} onClick={() => setSelectedAccountId(fondo.id)} />
+              <SummaryCard 
+                key={fondo.id} 
+                label={fondo.name} 
+                amount={fondo.balance} 
+                color="#3b82f6" 
+                showBalance={showBalance} 
+                history={fondo.history} 
+                onClick={() => setSelectedAccountId(fondo.id)} 
+              />
             ))}
           </div>
         )}
@@ -315,13 +348,23 @@ const handleAcceptAlert = () => {
       {/* 7. Historial de Movimientos Recientes */}
       <RecentTransactions transactions={recentHistory} />
 
-{/* Modales */}
+      {/* ========================================== */}
+      {/* CAPA DE MODALES (DIVULGACIÓN PROGRESIVA) */}
+      {/* ========================================== */}
+      
       {activeModal && (
         <TreasuryModal type={activeModal} onClose={() => setActiveModal(null)} onSuccess={handleSuccess} />
       )}
       
-      {selectedAccountId && <AccountDetails accountId={selectedAccountId} onBack={() => setSelectedAccountId(null)} />}
+      {/* Historial Inteligente de Cuentas (Banco, Efectivo, Fondos, Inversiones) */}
+      {selectedAccountId && (
+        <AccountDetails accountId={selectedAccountId} onBack={() => setSelectedAccountId(null)} />
+      )}
+      
+      {/* Gestor Avanzado de Créditos */}
       {showDebtManager && <DebtManager onBack={() => setShowDebtManager(false)} />}
+      
+      {/* Asientos de Apertura para Liquidez Bursátil */}
       {showInvManager && <InvestmentManager onBack={() => setShowInvManager(false)} />}
 
     </div>

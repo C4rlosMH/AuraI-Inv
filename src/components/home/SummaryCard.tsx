@@ -14,7 +14,7 @@ interface Props {
 
 export const SummaryCard = ({ label, amount, color, isDebt = false, showBalance = true, history = [], onClick }: Props) => {
   return (
-    <div onClick={onClick} className="bg-slate-900/80 p-4 rounded-3xl border border-slate-800/50">
+    <div onClick={onClick} className="bg-slate-900/50 p-5 rounded-2xl border border-slate-700/50 cursor-pointer hover:bg-slate-900/80 transition-colors">
       <span className="text-slate-400 text-[10px] font-bold tracking-widest uppercase block mb-1">
         {label}
       </span>
