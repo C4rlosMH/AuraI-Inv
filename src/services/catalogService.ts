@@ -38,7 +38,6 @@ export const addAsset = async (
   return newAsset;
 };
 
-// Función para poblar la base de datos la primera vez que abres la app
 export const seedInitialCatalog = async (db: any, saveDB: () => Promise<void>) => {
   const existingAccounts = await db.select().from(accounts);
   
@@ -72,6 +71,35 @@ export const seedInitialCatalog = async (db: any, saveDB: () => Promise<void>) =
 
     await saveDB();
   }
+
+  const currentAssets = await db.select().from(assets);
+  
+  if (currentAssets.length === 0) {
+    await db.insert(assets).values([
+      { 
+        id: 'GFNORTE O', name: 'Grupo Financiero Banorte', symbol: 'GFNORTE O', ticker: 'GFNORTE O',
+        category: 'GBM', totalTitles: 1, averageCost: 195.93, currentPrice: 199.12 
+      },
+      { 
+        id: 'KOF UBL', name: 'Coca Cola Femsa', symbol: 'KOF UBL', ticker: 'KOF UBL',
+        category: 'GBM', totalTitles: 1, averageCost: 192.30, currentPrice: 187.23 
+      },
+      { 
+        id: 'IVVPESO ISHRS', name: 'iShares S&P 500 Peso', symbol: 'IVVPESO ISHRS', ticker: 'IVVPESO ISHRS',
+        category: 'GBM', totalTitles: 1, averageCost: 156.44, currentPrice: 155.16 
+      },
+      { 
+        id: 'WALMEX *', name: 'Wal-Mart de México', symbol: 'WALMEX *', ticker: 'WALMEX *',
+        category: 'GBM', totalTitles: 3, averageCost: 138.36, currentPrice: 136.65 
+      },
+      { 
+        id: 'FIBRAMQ 12', name: 'Fibra Macquarie', symbol: 'FIBRAMQ 12', ticker: 'FIBRAMQ 12',
+        category: 'GBM', totalTitles: 3, averageCost: 131.64, currentPrice: 130.71 
+      }
+    ]);
+  }
+
+  await saveDB();
 };
 
 export const updateAccountSettings = async (

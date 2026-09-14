@@ -11,7 +11,7 @@ export const accounts = sqliteTable('accounts', {
 
 export const assets = sqliteTable('assets', {
   id: text('id').primaryKey(),
-  accountId: text('account_id').references(() => accounts.id).notNull(),
+  //accountId: text('account_id').references(() => accounts.id).notNull(),
   ticker: text('ticker').notNull(),
   category: text('category', { enum: ['CRIPTO', 'GBM'] }).notNull(),
   totalTitles: real('total_titles').notNull().default(0),

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { X, ArrowDownToLine, ArrowUpFromLine, ArrowRightLeft, Building2, Wallet, AlertCircle } from 'lucide-react';
 import { useDB } from '../../db/DBContext';
-import { accounts, transactions } from '../../db/schema';
-import { eq } from 'drizzle-orm';
+import { accounts } from '../../db/schema';
+import { processTreasuryTransaction } from '../../services/ledgerService'; // <-- Invocamos al motor
+import currency from 'currency.js';
 import { styles } from '../../screens/home/Home.styles';
 import { formatMXN } from '../../utils/formatters';
 
@@ -21,20 +22,18 @@ export const TreasuryModal = ({ type, onClose, onSuccess }: Props) => {
   const [bankAcc, setBankAcc] = useState<any>(null);
   const [cashAcc, setCashAcc] = useState<any>(null);
   
-  // --- ESTADOS: ESTÁNDAR ---
   const [originId, setOriginId] = useState('');
   const [destId, setDestId] = useState('');
   const [amount, setAmount] = useState('');
   const [concept, setConcept] = useState('');
   const [category, setCategory] = useState('');
   
-  // --- ESTADOS: INGRESO DIVIDIDO ---
   const [isSplitDeposit, setIsSplitDeposit] = useState(false);
   const [bankAmount, setBankAmount] = useState('');
   const [cashAmount, setCashAmount] = useState('');
 
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState(''); // <-- ESTADO PARA ALERTAS DE INTEGRIDAD
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const loadAccounts = async () => {
@@ -80,12 +79,9 @@ export const TreasuryModal = ({ type, onClose, onSuccess }: Props) => {
   const handleOriginChange = (newOriginId: string) => {
     setOriginId(newOriginId);
     setDestId(''); 
-    setError(''); // Limpiamos errores si cambia de cuenta
+    setError(''); 
   };
 
-  // ==========================================
-  // SIMULADOR MATEMÁTICO CON ALERTA DE INTEGRIDAD
-  // ==========================================
   const renderBalancePreview = (accId: string, isOrigin: boolean, customAmount?: string) => {
     if (!accId) return null;
     const acc = accountsList.find(a => a.id === accId);
@@ -94,115 +90,54 @@ export const TreasuryModal = ({ type, onClose, onSuccess }: Props) => {
     const numAmount = parseFloat(customAmount !== undefined ? customAmount : amount) || 0;
     if (numAmount === 0) return null;
 
-    let finalBalance = acc.balance;
+    let finalBalance = currency(acc.balance);
     let isError = false;
 
     if (isOrigin) {
       if (acc.type === 'DEUDA') {
-        // En deuda, gastar RESTA dinero (aumenta el pasivo)
-        finalBalance -= numAmount;
+        finalBalance = finalBalance.subtract(numAmount);
         const limit = acc.creditLimit || acc.credit_limit || 0;
-        if (Math.abs(finalBalance) > limit) isError = true;
+        if (Math.abs(finalBalance.value) > limit) isError = true;
       } else {
-        finalBalance -= numAmount; 
-        if (finalBalance < 0) isError = true; // No puede haber dinero negativo
+        finalBalance = finalBalance.subtract(numAmount);
+        if (finalBalance.value < 0) isError = true;
       }
     } else {
-      finalBalance += numAmount; 
+      finalBalance = finalBalance.add(numAmount);
     }
 
     const isDebt = acc.type === 'DEUDA';
     let colorFinal = isOrigin ? 'text-rose-400' : (isDebt ? 'text-slate-200' : 'text-emerald-400');
-    
-    // Si rompe las reglas de integridad, se pinta de rojo fuerte para avisarte
     if (isError) colorFinal = 'text-red-500 font-bold';
 
     return (
       <div className="text-[9px] mt-1 text-slate-500 font-medium flex items-center justify-between px-1">
         <span>Actual: {formatMXN(Math.abs(acc.balance))}</span>
         <span className="opacity-50">→</span>
-        <span>Final: <span className={colorFinal}>{formatMXN(Math.abs(finalBalance))}</span></span>
+        <span>Final: <span className={colorFinal}>{formatMXN(Math.abs(finalBalance.value))}</span></span>
       </div>
     );
   };
 
+  // ==========================================
+  // HANDLER ALIGERADO: SOLO ENVÍA DATOS AL MOTOR
+  // ==========================================
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     setError('');
 
     try {
-      const timestamp = Date.now();
+      // 1. Empacamos lo que el usuario escribió
+      const payload = {
+        type, isSplitDeposit, originId, destId, amount, concept, category,
+        bankId: bankAcc?.id, cashId: cashAcc?.id, bankAmount, cashAmount
+      };
 
-      if (type === 'DEPOSITO' && isSplitDeposit) {
-        const bAmt = parseFloat(bankAmount) || 0;
-        const cAmt = parseFloat(cashAmount) || 0;
-
-        if (bAmt <= 0 && cAmt <= 0) throw new Error("Debes ingresar al menos un monto válido");
-
-        if (bAmt > 0 && bankAcc) {
-          const txId = crypto.randomUUID();
-          await db.insert(transactions).values({ id: txId, type: 'DEPOSITO', destinationAccountId: bankAcc.id, quantity: bAmt, concept, category, timestamp });
-          await db.update(accounts).set({ balance: bankAcc.balance + bAmt }).where(eq(accounts.id, bankAcc.id));
-        }
-
-        if (cAmt > 0 && cashAcc) {
-          const txId = crypto.randomUUID();
-          await db.insert(transactions).values({ id: txId, type: 'DEPOSITO', destinationAccountId: cashAcc.id, quantity: cAmt, concept, category, timestamp });
-          await db.update(accounts).set({ balance: cashAcc.balance + cAmt }).where(eq(accounts.id, cashAcc.id));
-        }
-      } else {
-        const qty = parseFloat(amount);
-        if (isNaN(qty) || qty <= 0) throw new Error("Monto inválido");
-        if ((type === 'RETIRO' || type === 'TRANSFERENCIA') && !originId) throw new Error("Falta origen");
-        if ((type === 'DEPOSITO' || type === 'TRANSFERENCIA') && !destId) throw new Error("Falta destino");
-
-        // ==========================================
-        // VALIDACIÓN ESTRICTA: BLOQUEO POR SOBREGIRO
-        // ==========================================
-        if (type === 'RETIRO' || type === 'TRANSFERENCIA') {
-          const origAcc = accountsList.find(a => a.id === originId);
-          if (origAcc) {
-            if (origAcc.type === 'DEUDA') {
-              const currentDebt = Math.abs(origAcc.balance);
-              const limit = origAcc.creditLimit || origAcc.credit_limit || 0;
-              if (currentDebt + qty > limit) {
-                setError(`Línea de crédito insuficiente. Disponible: ${formatMXN(limit - currentDebt)}`);
-                setIsSaving(false);
-                return;
-              }
-            } else {
-              if (qty > origAcc.balance) {
-                setError(`Fondos insuficientes. Disponible en cuenta: ${formatMXN(origAcc.balance)}`);
-                setIsSaving(false);
-                return;
-              }
-            }
-          }
-        }
-
-        // Si pasó las validaciones de integridad, guardamos:
-        const txId = crypto.randomUUID();
-        await db.insert(transactions).values({
-          id: txId, type, originAccountId: (type === 'RETIRO' || type === 'TRANSFERENCIA') ? originId : null,
-          destinationAccountId: (type === 'DEPOSITO' || type === 'TRANSFERENCIA') ? destId : null,
-          quantity: qty, concept, category, timestamp
-        });
-
-        if (type === 'DEPOSITO') {
-          const destAcc = accountsList.find(a => a.id === destId);
-          await db.update(accounts).set({ balance: destAcc.balance + qty }).where(eq(accounts.id, destId));
-        } else if (type === 'RETIRO') {
-          const origAcc = accountsList.find(a => a.id === originId);
-          await db.update(accounts).set({ balance: origAcc.balance - qty }).where(eq(accounts.id, originId));
-        } else if (type === 'TRANSFERENCIA') {
-          const origAcc = accountsList.find(a => a.id === originId);
-          const destAcc = accountsList.find(a => a.id === destId);
-          await db.update(accounts).set({ balance: origAcc.balance - qty }).where(eq(accounts.id, originId));
-          await db.update(accounts).set({ balance: destAcc.balance + qty }).where(eq(accounts.id, destId));
-        }
-      }
-
+      // 2. Lo enviamos al Motor para que haga la matemática, validaciones y guardado
+      await processTreasuryTransaction(db, payload);
+      
+      // 3. Persistimos los cambios y cerramos
       await saveDB();
       onSuccess();
     } catch (err: any) {
@@ -218,9 +153,8 @@ export const TreasuryModal = ({ type, onClose, onSuccess }: Props) => {
     return 'Transferencia';
   };
 
-  const totalSplitAmount = (parseFloat(bankAmount) || 0) + (parseFloat(cashAmount) || 0);
+  const totalSplitAmount = currency(parseFloat(bankAmount) || 0).add(parseFloat(cashAmount) || 0).value;
 
-  // Helper para limpiar error al escribir
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>, setter: any) => {
     setter(e.target.value);
     setError('');
@@ -259,7 +193,6 @@ export const TreasuryModal = ({ type, onClose, onSuccess }: Props) => {
             </div>
           )}
 
-          {/* FLUJO 1: INGRESO DIVIDIDO */}
           {type === 'DEPOSITO' && isSplitDeposit && (
             <div className="flex flex-col gap-4 animate-fade-in">
               <div className="flex gap-4 items-start">
@@ -299,7 +232,6 @@ export const TreasuryModal = ({ type, onClose, onSuccess }: Props) => {
             </div>
           )}
 
-          {/* FLUJO 2: TRANSFERENCIA */}
           {type === 'TRANSFERENCIA' && (
             <div className="flex flex-col gap-4">
               <div className="flex gap-4 items-start">
@@ -327,7 +259,6 @@ export const TreasuryModal = ({ type, onClose, onSuccess }: Props) => {
             </div>
           )}
 
-          {/* FLUJO 3: INGRESO SIMPLE O GASTO */}
           {((type === 'DEPOSITO' && !isSplitDeposit) || type === 'RETIRO') && (
             <div className="flex gap-4 items-start">
               <div className="w-1/2">
@@ -347,7 +278,6 @@ export const TreasuryModal = ({ type, onClose, onSuccess }: Props) => {
             </div>
           )}
 
-          {/* CAMPOS COMUNES (Concepto y Categoría) */}
           <div className="flex gap-4 mt-1">
             <div className="w-1/2">
               <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Concepto <span className="text-rose-400">*</span></label>
@@ -359,7 +289,6 @@ export const TreasuryModal = ({ type, onClose, onSuccess }: Props) => {
             </div>
           </div>
 
-          {/* BANNER DE ERROR DE INTEGRIDAD */}
           {error && (
             <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg p-2.5 flex items-start gap-2 mt-2 animate-fade-in">
               <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />

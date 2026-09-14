@@ -15,6 +15,7 @@ import { Sparkline } from '../../components/home/Sparkline';
 import { CreditSparkline } from '../../components/home/CreditSparkline';
 import { TreasuryModal } from '../../components/home/TreasuryModal';
 import { RecentTransactions } from '../../components/home/RecentTransactions';
+import { InvestmentManager } from '../../components/details/InvestmentManager';
 
 type TreasuryType = 'DEPOSITO' | 'RETIRO' | 'TRANSFERENCIA' | null;
 
@@ -27,6 +28,7 @@ export default function Home() {
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [showSalaryAlert, setShowSalaryAlert] = useState(false);
   const [showDebtManager, setShowDebtManager] = useState(false);
+  const [showInvManager, setShowInvManager] = useState(false);
   
   // Estado único para el historial reciente
   const [recentHistory, setRecentHistory] = useState<any[]>([]);
@@ -224,6 +226,8 @@ const handleAcceptAlert = () => {
 
       {/* 5. INVERSIONES BURSÁTILES */}
       <div className="bg-slate-800/30 border border-slate-700/50 rounded-3xl p-5 mb-6">
+        
+        {/* CABECERA (Total del Portafolio) */}
         <div className="flex justify-between items-start mb-6">
           <div>
             <span className="text-slate-400 text-[10px] font-bold tracking-widest uppercase">Portafolio de Inversión</span>
@@ -237,7 +241,11 @@ const handleAcceptAlert = () => {
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <div className="bg-slate-900/50 pt-5 rounded-2xl border border-slate-700/50 flex flex-col justify-between overflow-hidden">
+          {/* TARJETA GBM+ */}
+          <div 
+            onClick={() => setShowInvManager(true)} // <-- Tocar GBM abre el gestor de liquidez (Disp)
+            className="bg-slate-900/50 pt-5 rounded-2xl border border-slate-700/50 flex flex-col justify-between overflow-hidden cursor-pointer hover:bg-slate-900/70 transition-colors"
+          >
             <div className="px-4 z-10">
               <div className="flex justify-between items-center mb-1.5">
                 <span className="text-slate-400 text-[10px] font-bold tracking-widest uppercase">GBM+</span>
@@ -259,7 +267,10 @@ const handleAcceptAlert = () => {
             </div>
           </div>
 
-          <div className="bg-slate-900/50 pt-5 rounded-2xl border border-slate-700/50 flex flex-col justify-between overflow-hidden">
+          <div 
+            onClick={() => setShowInvManager(true)} // <-- Tocar Crypto también abre el gestor
+            className="bg-slate-900/50 pt-5 rounded-2xl border border-slate-700/50 flex flex-col justify-between overflow-hidden cursor-pointer hover:bg-slate-900/70 transition-colors"
+          >
             <div className="px-4 z-10">
               <div className="flex justify-between items-center mb-1.5">
                 <span className="text-slate-400 text-[10px] font-bold tracking-widest uppercase">Crypto</span>
@@ -311,6 +322,8 @@ const handleAcceptAlert = () => {
       
       {selectedAccountId && <AccountDetails accountId={selectedAccountId} onBack={() => setSelectedAccountId(null)} />}
       {showDebtManager && <DebtManager onBack={() => setShowDebtManager(false)} />}
+      {showInvManager && <InvestmentManager onBack={() => setShowInvManager(false)} />}
+
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { eq, desc } from 'drizzle-orm';
 import { accounts, assets, transactions } from '../db/schema';
 import { calculateNewCPP, calculateOperationTotal } from '../utils/math';
+import currency from 'currency.js';
 
 // Usamos la API criptográfica nativa del navegador para generar IDs únicos
 const generateId = () => crypto.randomUUID();
@@ -306,5 +307,90 @@ export const getRecentTransactions = async (db: any, limitAmount = 5) => {
   } catch (error) {
     console.error("Error al obtener el historial:", error);
     return [];
+  }
+};
+
+export const processTreasuryTransaction = async (db: any, payload: any) => {
+  const { type, isSplitDeposit, originId, destId, amount, concept, category, bankId, cashId, bankAmount, cashAmount } = payload;
+  const timestamp = Date.now();
+
+  // Consultamos el estado real y fresco de las cuentas
+  const accountsData = await db.select().from(accounts);
+
+  // 1. FLUJO DIVIDIDO
+  if (type === 'DEPOSITO' && isSplitDeposit) {
+    const bAmt = parseFloat(bankAmount) || 0;
+    const cAmt = parseFloat(cashAmount) || 0;
+
+    if (bAmt <= 0 && cAmt <= 0) throw new Error("Debes ingresar al menos un monto válido");
+
+    if (bAmt > 0 && bankId) {
+      const bankAcc = accountsData.find((a: any) => a.id === bankId);
+      if (bankAcc) {
+        const txId = crypto.randomUUID();
+        await db.insert(transactions).values({ id: txId, type: 'DEPOSITO', destinationAccountId: bankId, quantity: bAmt, concept, category, timestamp });
+        const newBal = currency(bankAcc.balance).add(bAmt).value;
+        await db.update(accounts).set({ balance: newBal }).where(eq(accounts.id, bankId));
+      }
+    }
+
+    if (cAmt > 0 && cashId) {
+      const cashAcc = accountsData.find((a: any) => a.id === cashId);
+      if (cashAcc) {
+        const txId = crypto.randomUUID();
+        await db.insert(transactions).values({ id: txId, type: 'DEPOSITO', destinationAccountId: cashId, quantity: cAmt, concept, category, timestamp });
+        const newBal = currency(cashAcc.balance).add(cAmt).value;
+        await db.update(accounts).set({ balance: newBal }).where(eq(accounts.id, cashId));
+      }
+    }
+    return;
+  }
+
+  // 2. FLUJO ESTÁNDAR
+  const qty = parseFloat(amount);
+  if (isNaN(qty) || qty <= 0) throw new Error("Monto inválido");
+  if ((type === 'RETIRO' || type === 'TRANSFERENCIA') && !originId) throw new Error("Falta origen");
+  if ((type === 'DEPOSITO' || type === 'TRANSFERENCIA') && !destId) throw new Error("Falta destino");
+
+  const origAcc = originId ? accountsData.find((a: any) => a.id === originId) : null;
+  const destAcc = destId ? accountsData.find((a: any) => a.id === destId) : null;
+
+  // REGLA: PROTECCIÓN CONTRA SOBREGIRO
+  if (type === 'RETIRO' || type === 'TRANSFERENCIA') {
+    if (origAcc) {
+      if (origAcc.type === 'DEUDA') {
+        const currentDebt = Math.abs(origAcc.balance);
+        const limit = origAcc.creditLimit || origAcc.credit_limit || 0;
+        if (currency(currentDebt).add(qty).value > limit) {
+          const disponible = currency(limit).subtract(currentDebt).value;
+          throw new Error(`Línea de crédito insuficiente. Disp: ${disponible}`);
+        }
+      } else {
+        if (qty > origAcc.balance) {
+          throw new Error(`Fondos insuficientes. Disp: ${origAcc.balance}`);
+        }
+      }
+    }
+  }
+
+  // EJECUCIÓN (ASIENTOS CONTABLES EXACTOS)
+  const txId = crypto.randomUUID();
+  await db.insert(transactions).values({
+    id: txId, type, originAccountId: origAcc ? originId : null,
+    destinationAccountId: destAcc ? destId : null,
+    quantity: qty, concept, category, timestamp
+  });
+
+  if (type === 'DEPOSITO' && destAcc) {
+    const newBal = currency(destAcc.balance).add(qty).value;
+    await db.update(accounts).set({ balance: newBal }).where(eq(accounts.id, destId));
+  } else if (type === 'RETIRO' && origAcc) {
+    const newBal = currency(origAcc.balance).subtract(qty).value;
+    await db.update(accounts).set({ balance: newBal }).where(eq(accounts.id, originId));
+  } else if (type === 'TRANSFERENCIA' && origAcc && destAcc) {
+    const newOrigBal = currency(origAcc.balance).subtract(qty).value;
+    const newDestBal = currency(destAcc.balance).add(qty).value;
+    await db.update(accounts).set({ balance: newOrigBal }).where(eq(accounts.id, originId));
+    await db.update(accounts).set({ balance: newDestBal }).where(eq(accounts.id, destId));
   }
 };
