@@ -1,5 +1,5 @@
 import { eq, or } from 'drizzle-orm';
-import { accounts, assets, transactions } from '../db/schema';
+import { accounts, assets, transactions, netWorthHistory } from '../db/schema'; // <-- Nueva importación añadida
 
 const generateId = () => crypto.randomUUID();
 
@@ -78,25 +78,66 @@ export const seedInitialCatalog = async (db: any, saveDB: () => Promise<void>) =
     await db.insert(assets).values([
       { 
         id: 'GFNORTE O', name: 'Grupo Financiero Banorte', symbol: 'GFNORTE O', ticker: 'GFNORTE O',
-        category: 'GBM', totalTitles: 1, averageCost: 195.93, currentPrice: 199.12 
+        category: 'GBM', totalTitles: 1, averageCost: 195.93, currentPrice: 200.22 
+      },
+      { 
+        id: 'BBAJIO O', name: 'Banco del Bajio', symbol: 'BBAJIO O', ticker: 'BBAJIO O',
+        category: 'GBM', totalTitles: 5, averageCost: 57.96, currentPrice: 57.97 
       },
       { 
         id: 'KOF UBL', name: 'Coca Cola Femsa', symbol: 'KOF UBL', ticker: 'KOF UBL',
-        category: 'GBM', totalTitles: 1, averageCost: 192.30, currentPrice: 187.23 
+        category: 'GBM', totalTitles: 1, averageCost: 192.30, currentPrice: 191.09 
       },
       { 
         id: 'IVVPESO ISHRS', name: 'iShares S&P 500 Peso', symbol: 'IVVPESO ISHRS', ticker: 'IVVPESO ISHRS',
-        category: 'GBM', totalTitles: 1, averageCost: 156.44, currentPrice: 155.16 
+        category: 'GBM', totalTitles: 1, averageCost: 156.44, currentPrice: 154.85 
       },
       { 
         id: 'WALMEX *', name: 'Wal-Mart de México', symbol: 'WALMEX *', ticker: 'WALMEX *',
-        category: 'GBM', totalTitles: 3, averageCost: 138.36, currentPrice: 136.65 
+        category: 'GBM', totalTitles: 3, averageCost: 46.12, currentPrice: 46.03 
       },
       { 
         id: 'FIBRAMQ 12', name: 'Fibra Macquarie', symbol: 'FIBRAMQ 12', ticker: 'FIBRAMQ 12',
-        category: 'GBM', totalTitles: 3, averageCost: 131.64, currentPrice: 130.71 
+        category: 'GBM', totalTitles: 3, averageCost: 43.88, currentPrice: 43.80 
+      },
+      { 
+        id: 'FUNO 11', name: 'Fibra UNO ADMIN SA DE CV', symbol: 'FUNO 11', ticker: 'FUNO 11',
+        category: 'GBM', totalTitles: 2, averageCost: 29.36, currentPrice: 29.93 
       }
     ]);
+  }
+
+  // =========================================================================
+  // GENERACIÓN DE HISTORIAL PATRIMONIAL (Simulación de 7 días atrás)
+  // =========================================================================
+  const existingHistory = await db.select().from(netWorthHistory);
+  
+  if (existingHistory.length === 0) {
+    const today = new Date();
+    const historyData = [];
+    
+    // Simulamos una curva de crecimiento que empezó con $1,500 hace 7 días
+    const mockValues = [1500, 1620, 1580, 1800, 1950, 2100, 2236]; 
+    
+    for (let i = 6; i >= 0; i--) {
+      const pastDate = new Date(today);
+      pastDate.setDate(today.getDate() - i);
+      const dateString = pastDate.toISOString().split('T')[0]; // Formato YYYY-MM-DD
+      const timestamp = pastDate.getTime();
+      
+      const dayWorth = mockValues[6 - i];
+      
+      historyData.push({
+        id: dateString,
+        date: timestamp,
+        totalEfectivo: dayWorth * 0.1, // 10% en efectivo
+        totalInversiones: dayWorth * 0.8, // 80% en GBM
+        totalCripto: dayWorth * 0.1, // 10% en Cripto
+        netWorth: dayWorth
+      });
+    }
+    
+    await db.insert(netWorthHistory).values(historyData);
   }
 
   await saveDB();

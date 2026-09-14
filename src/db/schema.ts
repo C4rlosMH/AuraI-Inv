@@ -36,3 +36,15 @@ export const transactions = sqliteTable('transactions', {
   // La etiqueta estandarizada (ej. "Alimentación")
   category: text('category'),
 });
+
+// ==========================================
+// HISTORIAL PATRIMONIAL (Net Worth Snapshots)
+// ==========================================
+export const netWorthHistory = sqliteTable('net_worth_history', {
+  id: text('id').primaryKey(), // Usaremos la fecha como ID (ej. '2026-09-14') para que haya un solo registro por día
+  date: integer('date').notNull(), // Timestamp para ordenar la gráfica
+  totalEfectivo: real('total_efectivo').notNull().default(0),
+  totalInversiones: real('total_inversiones').notNull().default(0),
+  totalCripto: real('total_cripto').notNull().default(0),
+  netWorth: real('net_worth').notNull().default(0) // La suma de todo tu imperio
+});

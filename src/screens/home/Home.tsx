@@ -17,6 +17,7 @@ import { CreditSparkline } from '../../components/home/CreditSparkline';
 import { TreasuryModal } from '../../components/home/TreasuryModal';
 import { RecentTransactions } from '../../components/home/RecentTransactions';
 import { InvestmentManager } from '../../components/details/InvestmentManager';
+import { NetWorthChart } from '../../components/home/NetWorthChart';
 
 type TreasuryType = 'DEPOSITO' | 'RETIRO' | 'TRANSFERENCIA' | null;
 
@@ -159,7 +160,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 2. Patrimonio Consolidado Centrado */}
+      {/* 2. Patrimonio Consolidado Centrado (Limpio) */}
       <div className={styles.netWorthContainer}>
         <p className={styles.headerLabel}>Patrimonio Neto</p>
         <div className={styles.netWorthWrapper}>
@@ -188,6 +189,13 @@ export default function Home() {
         </button>
       </div>
 
+      {/* 3.5 TARJETA DE EVOLUCIÓN PATRIMONIAL (NUEVA UBICACIÓN) */}
+      <div className="bg-slate-800/30 border border-slate-700/50 rounded-3xl p-5 mb-6 animate-fade-in">
+        <div className="flex justify-between items-center mb-4">
+          <span className="text-slate-400 text-[10px] font-bold tracking-widest uppercase">Evolución (7 Días)</span>
+        </div>
+        <NetWorthChart data={stats.historicalNetWorth || []} showBalance={showBalance} />
+      </div>
       {/* 4. Cuentas Operativas y Crédito */}
       <div className="grid grid-cols-2 gap-4 mb-6">
         <SummaryCard 

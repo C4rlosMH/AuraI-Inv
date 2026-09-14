@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useDB } from '../db/DBContext';
-import { accounts, assets, transactions } from '../db/schema';
-import { desc } from 'drizzle-orm';
+import { accounts, assets, transactions, netWorthHistory } from '../db/schema';
+import { desc, asc } from 'drizzle-orm'; // <-- Importamos asc aquí
 
 export const usePortfolioStats = () => {
   const { db, isReady } = useDB();
@@ -31,7 +31,8 @@ export const usePortfolioStats = () => {
     historyDebt: [0],
     historyGBM: [0],
     historyCrypto: [0],
-    funds: [] as { id: string; name: string; balance: number; history: number[] }[]
+    funds: [] as { id: string; name: string; balance: number; history: number[] }[],
+    historicalNetWorth: [] as any[] // <-- Nuevo estado para la gráfica
   });
 
   const loadStats = useCallback(async () => {
@@ -40,6 +41,9 @@ export const usePortfolioStats = () => {
     const allAccounts = await db.select().from(accounts);
     const allAssets = await db.select().from(assets);
     const allTx = await db.select().from(transactions).orderBy(desc(transactions.timestamp));
+    
+    // 1. CARGA DEL HISTORIAL PATRIMONIAL (Para la gráfica)
+    const rawHistory = await db.select().from(netWorthHistory).orderBy(asc(netWorthHistory.date));
 
     let bank = 0, cash = 0, debt = 0, totalCreditLimit = 0, totalFundsBalance = 0;
     let gbmBuyingPower = 0, cryptoBuyingPower = 0; 
@@ -197,7 +201,8 @@ export const usePortfolioStats = () => {
       funds: Object.values(fundsMap),
       bankId,
       cashId,
-      debtId
+      debtId,
+      historicalNetWorth: rawHistory // <-- Inyectamos la gráfica al final
     });
   }, [isReady, db]);
 

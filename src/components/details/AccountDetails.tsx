@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, ArrowDownRight, ArrowUpRight, ArrowRightLeft, ShoppingCart, Tag, Wallet, Building2, Briefcase, ArrowLeft, History } from 'lucide-react';
+import { X, ArrowDownRight, ArrowUpRight, ArrowRightLeft, ShoppingCart, Tag, Wallet, Building2, Briefcase, ArrowLeft, History, HandCoins } from 'lucide-react';
 import { useDB } from '../../db/DBContext';
 import { accounts, transactions, assets } from '../../db/schema';
 import { desc } from 'drizzle-orm';
@@ -87,6 +87,20 @@ export const AccountDetails = ({ accountId, onBack }: Props) => {
         const parts = tx.concept.split(' | ');
         concept = `${isIncome ? 'Venta' : 'Compra'} de ${parts[1]}`;
         detail = parts[2]; // Ej: "3 títulos a $136.65"
+      }
+    }
+    
+    // 3. Dividendos (Flujo de Efectivo Pasivo)
+    else if (tx.type === 'DIVIDENDO' || tx.concept.startsWith('DIVIDENDO |')) {
+      isIncome = true;
+      icon = <HandCoins className="w-4 h-4" />;
+      colorClass = "text-emerald-400";
+      bgClass = "bg-emerald-500/10";
+      
+      if (tx.concept.includes(' | ')) {
+        const parts = tx.concept.split(' | ');
+        concept = `Dividendo de ${parts[1]}`;
+        detail = parts[2]; // Ej: "Pago de rendimientos"
       }
     }
 

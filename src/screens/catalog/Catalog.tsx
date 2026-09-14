@@ -1,89 +1,136 @@
 import React, { useState, useEffect } from 'react';
-import { Briefcase, Coins, TrendingUp, TrendingDown, ShoppingCart, Settings, X } from 'lucide-react';
+import { Briefcase, Coins, TrendingUp, TrendingDown, ShoppingCart, Settings, X, HandCoins, ArrowUp, ArrowDown, Wallet, RefreshCw } from 'lucide-react';
 import { useDB } from '../../db/DBContext';
-import { assets } from '../../db/schema';
+import { assets, accounts } from '../../db/schema';
 import { eq } from 'drizzle-orm';
-import currency from 'currency.js';
 import { styles } from '../home/Home.styles';
 import { formatMXN } from '../../utils/formatters';
+
+// Componentes Inteligentes
 import { TradeModal } from '../../components/catalog/TradeModal';
+import { DividendModal } from '../../components/catalog/DividendModal';
+import { AssetDetails } from '../../components/catalog/AssetDetails';
+import { syncPortfolioPrices } from '../../services/marketDataService';
+
+// Paleta de colores para la barra de diversificación
+const CHART_COLORS = ['bg-emerald-500', 'bg-blue-500', 'bg-purple-500', 'bg-amber-500', 'bg-rose-500', 'bg-cyan-500', 'bg-indigo-500'];
 
 export default function Catalog() {
   const { db, saveDB, isReady } = useDB();
   const [portfolio, setPortfolio] = useState<any[]>([]);
-  
-  // Nuevo estado para separar los mundos
   const [activeTab, setActiveTab] = useState<'GBM' | 'CRIPTO'>('GBM');
+  const [tabLiquidity, setTabLiquidity] = useState(0); // Estado para la liquidez
   
+  // Modales
   const [showTradeModal, setShowTradeModal] = useState(false);
-  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [showDividendModal, setShowDividendModal] = useState(false);
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   
+  // Ajuste Manual
+  const [showSyncModal, setShowSyncModal] = useState(false);
   const [ticker, setTicker] = useState('');
   const [category, setCategory] = useState('GBM');
   const [titles, setTitles] = useState('');
   const [currentPrice, setCurrentPrice] = useState('');
   const [averageCost, setAverageCost] = useState('');
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const loadPortfolio = async () => {
     if (!isReady || !db) return;
+    
+    // 1. Cargar Activos
     const data = await db.select().from(assets);
     setPortfolio(data);
+
+    // 2. Cargar Liquidez Dinámica del Tab Actual
+    const accs = await db.select().from(accounts);
+    const targetAcc = accs.find((a: any) => 
+      a.type === 'INVERSION' && 
+      (activeTab === 'GBM' 
+        ? a.name.toLowerCase().includes('inversion') || a.name.toLowerCase().includes('gbm') 
+        : a.name.toLowerCase().includes('cripto') || a.name.toLowerCase().includes('crypto')
+      )
+    );
+    setTabLiquidity(targetAcc ? targetAcc.balance : 0);
+  };
+
+  const handleSyncPrices = async () => {
+    setIsSyncing(true);
+    try {
+      await syncPortfolioPrices(db);
+      await loadPortfolio(); // Recargamos la UI con los precios frescos
+      window.dispatchEvent(new Event('db-update')); // Avisamos al Home
+    } catch (error) {
+      console.error("Error sincronizando precios:", error);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   useEffect(() => {
     loadPortfolio();
     window.addEventListener('db-update', loadPortfolio);
     return () => window.removeEventListener('db-update', loadPortfolio);
-  }, [isReady, db]);
+  }, [isReady, db, activeTab]);
 
-  // 1. Aislamos el portafolio según la pestaña seleccionada
   const filteredPortfolio = portfolio.filter(a => (a.category || 'GBM').toUpperCase() === activeTab);
 
-  // 2. La matemática ahora solo suma los activos de la pestaña activa
+  // MATEMÁTICA WEB3 (ALTA PRECISIÓN SIN CURRENCY.JS)
   const tabMarketValue = filteredPortfolio.reduce((acc, asset) => {
     const t = Number(asset.totalTitles ?? asset.total_titles) || 0;
     const c = Number(asset.averageCost ?? asset.average_cost) || 0;
     const p = Number(asset.currentPrice ?? asset.current_price) || c; 
-    return currency(acc).add(currency(t).multiply(p)).value;
+    return acc + Number((t * p).toFixed(2));
   }, 0);
 
   const tabTotalCost = filteredPortfolio.reduce((acc, asset) => {
     const t = Number(asset.totalTitles ?? asset.total_titles) || 0;
     const c = Number(asset.averageCost ?? asset.average_cost) || 0;
-    return currency(acc).add(currency(t).multiply(c)).value;
+    return acc + Number((t * c).toFixed(2));
   }, 0);
 
   const tabReturn = tabTotalCost > 0 ? ((tabMarketValue - tabTotalCost) / tabTotalCost) * 100 : 0;
+
+  // Pre-cálculo y Optimización (Para encontrar Max y Min)
+  const allocationsData = filteredPortfolio.map((asset, idx) => {
+    const t = Number(asset.totalTitles ?? asset.total_titles) || 0;
+    const c = Number(asset.averageCost ?? asset.average_cost) || 0;
+    const p = Number(asset.currentPrice ?? asset.current_price) || c; 
+    
+    const mktValue = Number((t * p).toFixed(2));
+    const costValue = Number((t * c).toFixed(2));
+    const returnPct = costValue > 0 ? ((mktValue - costValue) / costValue) * 100 : 0;
+    const isPositive = returnPct >= 0;
+    const pct = tabMarketValue > 0 ? (mktValue / tabMarketValue) * 100 : 0;
+    const dotColor = CHART_COLORS[idx % CHART_COLORS.length];
+
+    return { ...asset, t, c, p, mktValue, costValue, returnPct, isPositive, pct, dotColor };
+  });
+
+  // Calculamos quién tiene más y quién menos porcentaje
+  const maxPct = allocationsData.length > 1 ? Math.max(...allocationsData.map(a => a.pct)) : -1;
+  const minPct = allocationsData.length > 1 ? Math.min(...allocationsData.map(a => a.pct)) : -1;
+
+  // Funciones de control
+  const handleOpenEdit = (asset: any) => {
+    setTicker(asset.id); setCategory(asset.category); setTitles(asset.t.toString());
+    setCurrentPrice(asset.p.toString()); setAverageCost(asset.c.toString());
+    setShowSyncModal(true);
+  };
 
   const handleSaveAsset = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const assetId = ticker.toUpperCase();
-      const existing = portfolio.find(a => a.id === assetId);
-
       const parsedTitles = parseFloat(titles) || 0;
       const parsedCurrentPrice = parseFloat(currentPrice) || 0;
       const parsedAverageCost = parseFloat(averageCost) || parsedCurrentPrice;
 
-      if (existing) {
-        await db.update(assets).set({
-          totalTitles: parsedTitles,
-          currentPrice: parsedCurrentPrice,
-          averageCost: parsedAverageCost,
-          category // Se actualiza la categoría si es necesario
-        }).where(eq(assets.id, assetId));
-      } else {
-        await db.insert(assets).values({
-          id: assetId,
-          name: assetId,
-          symbol: assetId,
-          ticker: assetId,
-          category,
-          totalTitles: parsedTitles,
-          averageCost: parsedAverageCost,
-          currentPrice: parsedCurrentPrice
-        });
-      }
+      await db.update(assets).set({
+        totalTitles: parsedTitles,
+        currentPrice: parsedCurrentPrice,
+        averageCost: parsedAverageCost
+      }).where(eq(assets.id, assetId));
 
       await saveDB();
       await loadPortfolio();
@@ -94,9 +141,6 @@ export default function Catalog() {
     }
   };
 
-  // Ícono dinámico para la lista
-  const AssetIcon = activeTab === 'GBM' ? Briefcase : Coins;
-
   return (
     <div className={styles.container}>
       
@@ -106,13 +150,13 @@ export default function Catalog() {
         </div>
       </div>
 
-      {/* TABS DE NAVEGACIÓN */}
+      {/* TABS */}
       <div className="flex bg-slate-900/60 p-1 rounded-xl mb-6 border border-slate-800/50">
         <button 
           onClick={() => setActiveTab('GBM')}
           className={`flex-1 py-2.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-colors ${activeTab === 'GBM' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'text-slate-500 hover:text-slate-300'}`}
         >
-          GBM+ (Acciones)
+          Acciones
         </button>
         <button 
           onClick={() => setActiveTab('CRIPTO')}
@@ -122,98 +166,139 @@ export default function Catalog() {
         </button>
       </div>
 
+      {/* DASHBOARD PRINCIPAL Y ASSET ALLOCATION */}
       <div className="bg-slate-800/30 border border-slate-700/50 rounded-3xl p-6 mb-6 animate-fade-in">
-        <span className="text-slate-400 text-[10px] font-bold tracking-widest uppercase">
-          Valor Actual ({activeTab})
-        </span>
-        <div className="flex justify-between items-end mt-1">
-          <h1 className="text-white text-3xl font-bold tracking-tight">
-            {formatMXN(tabMarketValue)}
-          </h1>
+        <div className="flex justify-between items-start mb-6">
+          <div>
+            {/* Etiqueta y Botón del Oráculo */}
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-slate-400 text-[10px] font-bold tracking-widest uppercase">
+                Valor Actual ({activeTab})
+              </span>
+              <button 
+                onClick={handleSyncPrices} 
+                disabled={isSyncing}
+                className="text-slate-500 hover:text-emerald-400 transition-colors disabled:opacity-50"
+                title="Actualizar precios de mercado"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-emerald-400' : ''}`} />
+              </button>
+            </div>
+            
+            <div className="flex items-center gap-3 mt-1">
+              <h1 className="text-white text-3xl font-bold tracking-tight">
+                {formatMXN(tabMarketValue)}
+              </h1>
+              {/* Píldora de Liquidez */}
+              <div className="bg-slate-900/80 border border-slate-700/50 px-2.5 py-1 rounded-lg flex items-center gap-1.5 shadow-sm">
+                <Wallet className="w-3.5 h-3.5 text-slate-400" />
+                <span className="text-slate-300 text-[10px] font-bold tracking-wide">Disp: {formatMXN(tabLiquidity)}</span>
+              </div>
+            </div>
+          </div>
+          
           <div className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold ${tabReturn >= 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
             {tabReturn >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
             {tabReturn > 0 ? '+' : ''}{tabReturn.toFixed(2)}%
           </div>
         </div>
+        
+        {/* BARRA DE DIVERSIFICACIÓN LIMPIA */}
+        {allocationsData.length > 0 && (
+          <div className="flex h-3 w-full rounded-full overflow-hidden bg-slate-900/50 border border-slate-700/30">
+            {allocationsData.map(asset => (
+              <div key={`bar-${asset.id}`} style={{ width: `${asset.pct}%` }} className={`${asset.dotColor} h-full border-r border-slate-800/50 last:border-0`} />
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex justify-between items-center mb-4 px-1">
         <h3 className="text-slate-400 text-[10px] font-bold tracking-widest uppercase">
-          Títulos en Posesión
+          Portafolio Detallado
         </h3>
-        <button 
-          onClick={() => setShowTradeModal(true)} 
-          className="flex items-center gap-1 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg border border-emerald-500/20 transition-colors text-[10px] font-bold uppercase tracking-wider"
-        >
-          <ShoppingCart className="w-3.5 h-3.5" /> Operar
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowDividendModal(true)} className="flex items-center gap-1 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1.5 rounded-lg border border-emerald-500/20 transition-colors text-[10px] font-bold uppercase tracking-wider">
+            <HandCoins className="w-3.5 h-3.5" /> Cobrar
+          </button>
+          <button onClick={() => setShowTradeModal(true)} className="flex items-center gap-1 text-slate-300 bg-slate-700/50 hover:bg-slate-700 px-2.5 py-1.5 rounded-lg border border-slate-600/50 transition-colors text-[10px] font-bold uppercase tracking-wider">
+            <ShoppingCart className="w-3.5 h-3.5" /> Operar
+          </button>
+        </div>
       </div>
 
+      {/* LISTA DE ACTIVOS CON ETIQUETAS MAX/MIN */}
       <div className="flex flex-col gap-3 min-h-[300px]">
-        {filteredPortfolio.length === 0 ? (
+        {allocationsData.length === 0 ? (
           <div className="bg-slate-900/40 p-6 rounded-3xl border border-dashed border-slate-700 text-center animate-fade-in">
             <span className="text-slate-500 text-xs">No hay activos registrados en {activeTab === 'GBM' ? 'GBM+' : 'Criptomonedas'}.</span>
           </div>
         ) : (
-          filteredPortfolio.map(asset => {
-            const t = Number(asset.totalTitles ?? asset.total_titles) || 0;
-            const c = Number(asset.averageCost ?? asset.average_cost) || 0;
-            const p = Number(asset.currentPrice ?? asset.current_price) || c; 
-            
-            const mktValue = currency(t).multiply(p).value;
-            const costValue = currency(t).multiply(c).value;
-            const returnPct = costValue > 0 ? ((mktValue - costValue) / costValue) * 100 : 0;
-            const isPositive = returnPct >= 0;
-
-            return (
-              <div 
-                key={asset.id} 
-                className="bg-slate-900/40 border border-slate-800/50 rounded-2xl p-4 flex justify-between items-center group relative overflow-hidden animate-fade-in"
-              >
-                <div className="flex items-center gap-3 relative z-10">
-                  <div className={`p-2.5 rounded-xl border border-white/5 ${isPositive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-                    <AssetIcon className="w-4 h-4" />
-                  </div>
-                  <div>
+          allocationsData.map((asset) => (
+            <div 
+              key={asset.id} 
+              onClick={() => setSelectedAssetId(asset.id)}
+              className="bg-slate-900/40 border border-slate-800/50 rounded-2xl p-4 flex justify-between items-center cursor-pointer hover:bg-slate-900/80 hover:border-slate-700 transition-colors group animate-fade-in"
+            >
+              <div className="flex items-center gap-3 relative z-10">
+                <div className={`w-1 h-8 rounded-full ${asset.dotColor}`} />
+                <div>
+                  
+                  {/* Fila del Título y Etiquetas */}
+                  <div className="flex flex-wrap items-center gap-2 mb-0.5">
                     <h4 className="text-white font-bold text-sm">{asset.id}</h4>
-                    <span className="text-slate-500 text-[10px] uppercase font-bold">
-                      {t} {activeTab === 'CRIPTO' ? 'Tokens' : 'Títulos'} • Costo: {formatMXN(c)}
-                    </span>
-                  </div>
-                </div>
-                
-                <div className="text-right relative z-10 flex items-center gap-3">
-                  <div>
-                    <div className="text-slate-100 font-bold text-sm">{formatMXN(mktValue)}</div>
-                    <div className={`text-[10px] font-bold mt-0.5 ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {isPositive ? '+' : ''}{returnPct.toFixed(2)}%
-                    </div>
+                    <span className="text-slate-400 text-[10px] font-bold">{asset.pct.toFixed(1)}%</span>
+                    
+                    {/* Badge: Mayor Peso */}
+                    {asset.pct === maxPct && maxPct !== minPct && (
+                      <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[8px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded flex items-center gap-1">
+                        <ArrowUp className="w-2.5 h-2.5" /> Mayor Peso
+                      </span>
+                    )}
+                    
+                    {/* Badge: Menor Peso */}
+                    {asset.pct === minPct && maxPct !== minPct && (
+                      <span className="bg-slate-800/80 text-slate-400 border border-slate-700 text-[8px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded flex items-center gap-1">
+                        <ArrowDown className="w-2.5 h-2.5" /> Menor Peso
+                      </span>
+                    )}
                   </div>
                   
-                  <button 
-                    onClick={() => {
-                      setTicker(asset.id); setCategory(asset.category); setTitles(t.toString());
-                      setCurrentPrice(p.toString()); setAverageCost(c.toString());
-                      setShowSyncModal(true);
-                    }}
-                    className="p-1.5 text-slate-500 hover:text-emerald-400 hover:bg-emerald-400/10 rounded-lg transition-colors"
-                  >
-                    <Settings className="w-4 h-4" />
-                  </button>
+                  <span className="text-slate-500 text-[10px] uppercase font-bold">
+                    {asset.t} {activeTab === 'CRIPTO' ? 'Tokens' : 'Títulos'} • Costo: {formatMXN(asset.c)}
+                  </span>
                 </div>
               </div>
-            );
-          })
+              
+              <div className="text-right relative z-10">
+                <div className="text-slate-100 font-bold text-sm">{formatMXN(asset.mktValue)}</div>
+                <div className={`text-[10px] font-bold mt-0.5 ${asset.isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {asset.isPositive ? '+' : ''}{asset.returnPct.toFixed(2)}%
+                </div>
+              </div>
+            </div>
+          ))
         )}
       </div>
 
-      {showTradeModal && (
-        <TradeModal 
-          marketType={activeTab} 
-          onClose={() => setShowTradeModal(false)} 
+      {/* MODALES */}
+      {showTradeModal && <TradeModal marketType={activeTab} onClose={() => setShowTradeModal(false)} />}
+      {showDividendModal && <DividendModal marketType={activeTab} onClose={() => setShowDividendModal(false)} />}
+      
+      {/* HISTORIAL DETALLADO */}
+      {selectedAssetId && (
+        <AssetDetails 
+          assetId={selectedAssetId} 
+          marketType={activeTab}
+          onBack={() => setSelectedAssetId(null)} 
+          onEdit={() => {
+            const asset = allocationsData.find(a => a.id === selectedAssetId);
+            if (asset) handleOpenEdit(asset);
+          }} 
         />
       )}
 
+      {/* Sincronizador Manual */}
       {showSyncModal && (
         <div className={styles.modalOverlay}>
           <div className={styles.modalCard}>
@@ -229,28 +314,20 @@ export default function Catalog() {
                   <input type="text" className={styles.input} value={ticker} readOnly />
                 </div>
                 <div className={styles.inputGroup}>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Categoría</label>
-                  <select className={styles.input} value={category} onChange={e => setCategory(e.target.value)}>
-                    <option value="GBM">GBM+</option>
-                    <option value="CRIPTO">Criptomonedas</option>
-                  </select>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Total en Posesión</label>
+                  <input type="number" step="any" min="0" className={styles.input} value={titles} onChange={e => setTitles(e.target.value)} required />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className={styles.inputGroup}>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Total en Posesión</label>
-                  <input type="number" step="any" min="0" className={styles.input} value={titles} onChange={e => setTitles(e.target.value)} required />
-                </div>
-                <div className={styles.inputGroup}>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Costo Promedio ($)</label>
                   <input type="number" step="any" min="0" className={styles.input} value={averageCost} onChange={e => setAverageCost(e.target.value)} required />
                 </div>
-              </div>
-
-              <div className={styles.inputGroup}>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Precio de Mercado (Actual)</label>
-                <input type="number" step="any" min="0" className={styles.input} value={currentPrice} onChange={e => setCurrentPrice(e.target.value)} required />
+                <div className={styles.inputGroup}>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Precio Actual</label>
+                  <input type="number" step="any" min="0" className={styles.input} value={currentPrice} onChange={e => setCurrentPrice(e.target.value)} required />
+                </div>
               </div>
 
               <button type="submit" className={`${styles.submitBtn} bg-slate-700 hover:bg-slate-600 mt-2 flex justify-center items-center`}>

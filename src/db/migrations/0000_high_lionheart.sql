@@ -30,3 +30,12 @@ CREATE TABLE `transactions` (
     FOREIGN KEY (`destination_account_id`) REFERENCES `accounts`(`id`) ON UPDATE no action ON DELETE no action,
     FOREIGN KEY (`asset_id`) REFERENCES `assets`(`id`) ON UPDATE no action ON DELETE no action
 );
+
+CREATE TABLE IF NOT EXISTS net_worth_history (
+  id TEXT PRIMARY KEY,
+  date INTEGER NOT NULL,
+  total_efectivo REAL NOT NULL DEFAULT 0,
+  total_inversiones REAL NOT NULL DEFAULT 0,
+  total_cripto REAL NOT NULL DEFAULT 0,
+  net_worth REAL NOT NULL DEFAULT 0
+);
