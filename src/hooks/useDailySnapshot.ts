@@ -10,20 +10,17 @@ export const useDailySnapshot = () => {
   const hasRun = useRef(false);
 
   useEffect(() => {
-    // Evitar que corra si la DB no está lista, el patrimonio es 0 (aún cargando), o ya corrió en esta sesión
     if (!isReady || !db || stats.netWorth === 0 || hasRun.current) return;
 
     const checkAndSaveSnapshot = async () => {
       try {
         const today = new Date();
-        const dateString = today.toISOString().split('T')[0]; // Ej: '2026-09-15'
+        const dateString = today.toISOString().split('T')[0]; 
         const timestamp = today.getTime();
 
-        // 1. Verificamos si ya existe el snapshot de hoy
         const existing = await db.select().from(netWorthHistory).where(eq(netWorthHistory.id, dateString));
         
         if (existing.length === 0) {
-          // 2. Si no existe, guardamos la "fotografía" del patrimonio actual
           await db.insert(netWorthHistory).values({
             id: dateString,
             date: timestamp,
@@ -32,7 +29,12 @@ export const useDailySnapshot = () => {
             totalCripto: stats.cryptoMarketValue + stats.cryptoBuyingPower,
             netWorth: stats.netWorth
           });
+          
           console.log(`Snapshot diario guardado para ${dateString}: $${stats.netWorth}`);
+          
+          // ---> ESTA ES LA LÍNEA QUE FALTABA <---
+          // Obliga a usePortfolioStats a recargar la info y actualizar la gráfica instantáneamente
+          window.dispatchEvent(new Event('db-update'));
         }
         
         hasRun.current = true;

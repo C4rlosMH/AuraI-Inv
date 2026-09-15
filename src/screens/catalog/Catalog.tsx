@@ -10,6 +10,7 @@ import { formatMXN } from '../../utils/formatters';
 import { TradeModal } from '../../components/catalog/TradeModal';
 import { DividendModal } from '../../components/catalog/DividendModal';
 import { AssetDetails } from '../../components/catalog/AssetDetails';
+import { AllocationBar } from '../../components/catalog/AllocationBar'; // <-- IMPORTACIÓN CORRECTA
 import { syncPortfolioPrices } from '../../services/marketDataService';
 
 // Paleta de colores para la barra de diversificación
@@ -19,7 +20,7 @@ export default function Catalog() {
   const { db, saveDB, isReady } = useDB();
   const [portfolio, setPortfolio] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'GBM' | 'CRIPTO'>('GBM');
-  const [tabLiquidity, setTabLiquidity] = useState(0); // Estado para la liquidez
+  const [tabLiquidity, setTabLiquidity] = useState(0); 
   
   // Modales
   const [showTradeModal, setShowTradeModal] = useState(false);
@@ -58,8 +59,8 @@ export default function Catalog() {
     setIsSyncing(true);
     try {
       await syncPortfolioPrices(db);
-      await loadPortfolio(); // Recargamos la UI con los precios frescos
-      window.dispatchEvent(new Event('db-update')); // Avisamos al Home
+      await loadPortfolio(); 
+      window.dispatchEvent(new Event('db-update')); 
     } catch (error) {
       console.error("Error sincronizando precios:", error);
     } finally {
@@ -107,7 +108,6 @@ export default function Catalog() {
     return { ...asset, t, c, p, mktValue, costValue, returnPct, isPositive, pct, dotColor };
   });
 
-  // Calculamos quién tiene más y quién menos porcentaje
   const maxPct = allocationsData.length > 1 ? Math.max(...allocationsData.map(a => a.pct)) : -1;
   const minPct = allocationsData.length > 1 ? Math.min(...allocationsData.map(a => a.pct)) : -1;
 
@@ -170,7 +170,6 @@ export default function Catalog() {
       <div className="bg-slate-800/30 border border-slate-700/50 rounded-3xl p-6 mb-6 animate-fade-in">
         <div className="flex justify-between items-start mb-6">
           <div>
-            {/* Etiqueta y Botón del Oráculo */}
             <div className="flex items-center gap-2 mb-1">
               <span className="text-slate-400 text-[10px] font-bold tracking-widest uppercase">
                 Valor Actual ({activeTab})
@@ -189,7 +188,6 @@ export default function Catalog() {
               <h1 className="text-white text-3xl font-bold tracking-tight">
                 {formatMXN(tabMarketValue)}
               </h1>
-              {/* Píldora de Liquidez */}
               <div className="bg-slate-900/80 border border-slate-700/50 px-2.5 py-1 rounded-lg flex items-center gap-1.5 shadow-sm">
                 <Wallet className="w-3.5 h-3.5 text-slate-400" />
                 <span className="text-slate-300 text-[10px] font-bold tracking-wide">Disp: {formatMXN(tabLiquidity)}</span>
@@ -203,14 +201,9 @@ export default function Catalog() {
           </div>
         </div>
         
-        {/* BARRA DE DIVERSIFICACIÓN LIMPIA */}
-        {allocationsData.length > 0 && (
-          <div className="flex h-3 w-full rounded-full overflow-hidden bg-slate-900/50 border border-slate-700/30">
-            {allocationsData.map(asset => (
-              <div key={`bar-${asset.id}`} style={{ width: `${asset.pct}%` }} className={`${asset.dotColor} h-full border-r border-slate-800/50 last:border-0`} />
-            ))}
-          </div>
-        )}
+        {/* <-- CAMBIO APLICADO AQUÍ: Componente Modular --> */}
+        <AllocationBar data={allocationsData} />
+
       </div>
 
       <div className="flex justify-between items-center mb-4 px-1">

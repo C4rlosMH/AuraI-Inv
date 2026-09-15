@@ -5,10 +5,11 @@ import Catalog from '../screens/catalog/Catalog';
 import Transactions from '../screens/transactions/Transactions';
 import Settings from '../settings/Settings'; // <-- 1. FALTABA ESTA IMPORTACIÓN
 import { styles } from './Layout.styles';
+import { useDailySnapshot } from '../hooks/useDailySnapshot';
 
 export default function Layout() {
+  useDailySnapshot();
   const [activeTab, setActiveTab] = useState<'home' | 'transactions' | 'catalog' | 'settings'>('home');
-
   return (
     <div className={styles.container}>
       

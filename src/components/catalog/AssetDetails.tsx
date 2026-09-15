@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { X, Settings, ShoppingCart, Tag, HandCoins, Briefcase, Coins } from 'lucide-react';
 import { useDB } from '../../db/DBContext';
 import { assets, transactions } from '../../db/schema';
@@ -6,6 +6,7 @@ import { desc } from 'drizzle-orm';
 import currency from 'currency.js';
 import { styles } from '../../screens/home/Home.styles';
 import { formatMXN } from '../../utils/formatters';
+import { MarketSparkline } from './MarketSparkline'; // <-- IMPORTAMOS EL GRÁFICO
 
 interface Props {
   assetId: string;
@@ -24,27 +25,46 @@ export const AssetDetails = ({ assetId, marketType, onBack, onEdit }: Props) => 
   }, [assetId, db]);
 
   const loadData = async () => {
-    // 1. Cargar datos del activo
     const allAssets = await db.select().from(assets);
     const currentAsset = allAssets.find((a: any) => a.id === assetId);
     setAsset(currentAsset);
 
-    // 2. Filtrar el historial usando el motor de desencriptación de conceptos
     const allTxs = await db.select().from(transactions).orderBy(desc(transactions.timestamp));
     const assetTxs = allTxs.filter((tx: any) => {
       if (tx.concept && tx.concept.includes(' | ')) {
         const parts = tx.concept.split(' | ');
-        return parts[1] === assetId; // El índice 1 siempre es el Ticker en nuestro tradeService
+        return parts[1] === assetId; 
       }
       return false;
     });
     setHistory(assetTxs);
   };
 
+  // Generador de trayectoria de mercado (Algoritmo visual)
+  const generateChartData = (startPrice: number, endPrice: number) => {
+    const points = [];
+    const steps = 24; // Puntos de la gráfica
+    // Añadimos un 2% de volatilidad simulada basada en el precio medio
+    const volatility = ((startPrice + endPrice) / 2) * 0.02; 
+    
+    for (let i = 0; i <= steps; i++) {
+      if (i === 0) points.push(startPrice);
+      else if (i === steps) points.push(endPrice);
+      else {
+        const progress = i / steps;
+        const base = startPrice + (endPrice - startPrice) * progress;
+        // Ruido aleatorio para simular velas/movimientos de mercado
+        const noise = (Math.random() - 0.5) * volatility;
+        points.push(base + noise);
+      }
+    }
+    return points;
+  };
+
   const renderTransaction = (tx: any) => {
     const parts = tx.concept.split(' | ');
-    const type = parts[0]; // COMPRA, VENTA, DIVIDENDO
-    const detail = parts[2]; // Ej: "3 títulos a $136.65" o "Pago de rendimientos"
+    const type = parts[0]; 
+    const detail = parts[2]; 
     const txAmount = tx.quantity;
 
     let isIncome = false;
@@ -54,19 +74,19 @@ export const AssetDetails = ({ assetId, marketType, onBack, onEdit }: Props) => 
     let title = "Operación";
 
     if (type === 'COMPRA') {
-      isIncome = false; // Gastaste liquidez
+      isIncome = false; 
       icon = <ShoppingCart className="w-4 h-4" />;
       colorClass = "text-rose-400";
       bgClass = "bg-rose-500/10";
       title = "Compra de Títulos";
     } else if (type === 'VENTA') {
-      isIncome = true; // Recibiste liquidez
+      isIncome = true; 
       icon = <Tag className="w-4 h-4" />;
       colorClass = "text-emerald-400";
       bgClass = "bg-emerald-500/10";
       title = "Venta de Títulos";
     } else if (type === 'DIVIDENDO') {
-      isIncome = true; // Recibiste liquidez pasiva
+      isIncome = true; 
       icon = <HandCoins className="w-4 h-4" />;
       colorClass = "text-emerald-400";
       bgClass = "bg-emerald-500/10";
@@ -108,6 +128,10 @@ export const AssetDetails = ({ assetId, marketType, onBack, onEdit }: Props) => 
   const isPositive = returnPct >= 0;
 
   const AssetIcon = marketType === 'GBM' ? Briefcase : Coins;
+  
+  // Memorizamos la data de la gráfica para evitar re-cálculos si el componente se re-renderiza
+  const chartData = useMemo(() => generateChartData(costValue, mktValue), [costValue, mktValue]);
+  const themeColor = isPositive ? '#34d399' : '#f43f5e'; // emerald-400 o rose-400
 
   return (
     <div className={styles.modalOverlay}>
@@ -124,14 +148,19 @@ export const AssetDetails = ({ assetId, marketType, onBack, onEdit }: Props) => 
           </button>
         </div>
 
-        {/* MÉTRICAS DEL ACTIVO */}
-        <div className="flex flex-col items-center justify-center mt-2 mb-6">
+        {/* MÉTRICAS DEL ACTIVO CON GRÁFICA INCRUSTADA */}
+        <div className="flex flex-col items-center justify-center mt-2 mb-2 w-full overflow-hidden">
           <span className="text-slate-400 text-[10px] font-bold tracking-widest uppercase mb-1">
             Valor de Mercado
           </span>
-          <h1 className="text-white text-4xl font-bold tracking-tight">{formatMXN(mktValue)}</h1>
+          <h1 className="text-white text-4xl font-bold tracking-tight relative z-10">{formatMXN(mktValue)}</h1>
           
-          <div className="flex items-center gap-3 mt-4 w-full bg-slate-900/50 p-3 rounded-xl border border-slate-800/50">
+          {/* NUEVO: Gráfica tipo Neón */}
+          <div className="w-full -mt-4 opacity-90 relative z-0">
+            <MarketSparkline data={chartData} color={themeColor} />
+          </div>
+          
+          <div className="flex items-center gap-3 mt-2 w-full bg-slate-900/50 p-3 rounded-xl border border-slate-800/50 relative z-10">
             <div className="flex-1 text-center border-r border-slate-700/50">
               <span className="block text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-0.5">Títulos</span>
               <span className="text-slate-200 text-sm font-bold">{t}</span>
@@ -151,7 +180,7 @@ export const AssetDetails = ({ assetId, marketType, onBack, onEdit }: Props) => 
 
         {/* ACCIONES Y KARDEX */}
         <div>
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex justify-between items-center mb-4 mt-2">
             <h3 className="text-slate-400 text-[10px] font-bold tracking-widest uppercase">Historial de Operaciones</h3>
             <button 
               onClick={onEdit}
@@ -161,7 +190,7 @@ export const AssetDetails = ({ assetId, marketType, onBack, onEdit }: Props) => 
             </button>
           </div>
           
-          <div className="flex flex-col gap-3 overflow-y-auto max-h-[45vh] custom-scrollbar pr-1">
+          <div className="flex flex-col gap-3 overflow-y-auto max-h-[35vh] custom-scrollbar pr-1">
             {history.length === 0 ? (
               <div className="bg-slate-900/40 p-6 rounded-3xl border border-dashed border-slate-700 text-center">
                 <span className="text-slate-500 text-xs">No hay movimientos registrados para este activo.</span>

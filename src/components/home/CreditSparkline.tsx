@@ -1,56 +1,44 @@
 import React from 'react';
+import { ResponsiveContainer, AreaChart, Area, YAxis } from 'recharts';
 
-interface Props {
-  data: number[];
-  color: string;
-  totalLimit: number; // Recibe el límite total de la tarjeta
-}
-
-export const CreditSparkline = ({ data, color, totalLimit }: Props) => {
-  if (!data || data.length === 0) return null;
-
-  const validData = data.map(n => (isNaN(n) ? 0 : n));
+export const CreditSparkline = ({ data, color, totalLimit }: { data: number[], color: string, totalLimit: number }) => {
+  const safeData = data.length > 1 ? data : (data.length === 1 ? [data[0], data[0]] : [0, 0]);
   
-  // Fijamos el suelo matemático (0 disponibles) y el techo (Límite Total)
-  const dataMin = 0;
-  const dataMax = totalLimit > 0 ? totalLimit : 1; 
-  const range = dataMax - dataMin;
+  const chartData = safeData.map((val) => ({
+    value: val
+  }));
 
-  const height = 40;
-  const width = 100;
-  const padding = 3; 
-  const drawHeight = height - (padding * 2);
-
-  const points = validData.map((val, i) => {
-    const x = (i / (validData.length - 1 || 1)) * width;
-    
-    // Encapsulamos el valor para que jamás rompa el contenedor
-    const clampedVal = Math.max(dataMin, Math.min(dataMax, val));
-    const normalized = (clampedVal - dataMin) / range;
-    
-    // Calculamos Y con padding interno
-    const y = padding + (drawHeight - (normalized * drawHeight));
-    
-    return `${x},${y}`;
-  }).join(' ');
+  const gradientId = `credit-gradient-${color.replace('#', '')}`;
 
   return (
-    <div className="w-full h-full relative overflow-hidden flex items-end">
-      <svg 
-        className="w-full h-full"
-        viewBox={`0 0 ${width} ${height}`} 
-        preserveAspectRatio="none"
-      >
-        <polyline
-          points={points}
-          fill="none"
-          stroke={color}
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          vectorEffect="non-scaling-stroke" 
-        />
-      </svg>
+    <div className="w-full h-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={chartData}>
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={color} stopOpacity={0.4} />
+              <stop offset="95%" stopColor={color} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          
+          {/* Para el crédito, podemos anclar el máximo al límite total para mayor precisión visual */}
+          <YAxis 
+            domain={[0, totalLimit || 'auto']} 
+            hide 
+          />
+          
+          <Area 
+            type="monotone" 
+            dataKey="value" 
+            stroke={color} 
+            strokeWidth={3} 
+            fillOpacity={1} 
+            fill={`url(#${gradientId})`}
+            isAnimationActive={true}
+            animationDuration={800}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
     </div>
   );
 };
