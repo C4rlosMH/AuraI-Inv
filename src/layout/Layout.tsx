@@ -3,17 +3,19 @@ import { Briefcase, Zap, BarChart2 } from 'lucide-react';
 import Home from '../screens/home/Home';
 import Catalog from '../screens/catalog/Catalog';
 import Transactions from '../screens/transactions/Transactions';
+import Settings from '../settings/Settings'; // <-- 1. FALTABA ESTA IMPORTACIÓN
 import { styles } from './Layout.styles';
 
 export default function Layout() {
-  const [activeTab, setActiveTab] = useState<'home' | 'transactions' | 'catalog'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'transactions' | 'catalog' | 'settings'>('home');
 
   return (
     <div className={styles.container}>
       
       <main className={styles.mainArea}>
         <div className={activeTab === 'home' ? 'block' : 'hidden'}>
-          <Home />
+          {/* <-- 2. FALTABA PASAR LA FUNCIÓN A HOME --> */}
+          <Home onOpenSettings={() => setActiveTab('settings')} />
         </div>
         
         <div className={activeTab === 'catalog' ? 'block' : 'hidden'}>
@@ -22,6 +24,11 @@ export default function Layout() {
         
         <div className={activeTab === 'transactions' ? 'block' : 'hidden'}>
           <Transactions />
+        </div>
+
+        {/* <-- 3. FALTABA RENDERIZAR LA VISTA DE SETTINGS --> */}
+        <div className={activeTab === 'settings' ? 'block' : 'hidden'}>
+          <Settings onBack={() => setActiveTab('home')} />
         </div>
       </main>
 
@@ -39,7 +46,6 @@ export default function Layout() {
           className={`${styles.navButton} ${activeTab === 'transactions' ? styles.navButtonActive : styles.navButtonInactive}`}
         >
           <div className={styles.iconCenterWrapper}>
-            {/* fill-current permite que el rayo se rellene de color al activarse */}
             <Zap className={`w-6 h-6 ${activeTab === 'transactions' ? 'fill-emerald-400' : ''}`} />
           </div>
         </button>

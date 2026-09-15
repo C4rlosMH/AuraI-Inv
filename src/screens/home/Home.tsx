@@ -21,7 +21,11 @@ import { NetWorthChart } from '../../components/home/NetWorthChart';
 
 type TreasuryType = 'DEPOSITO' | 'RETIRO' | 'TRANSFERENCIA' | null;
 
-export default function Home() {
+interface HomeProps {
+  onOpenSettings?: () => void;
+}
+
+export default function Home({ onOpenSettings }: HomeProps) {
   const { db, saveDB, isReady } = useDB();
   const { stats } = usePortfolioStats();
   
@@ -132,11 +136,17 @@ export default function Home() {
 
   return (
     <div className={styles.container}>
-      
-      {/* 1. Top Header */}
       <div className={styles.topHeader}>
         <div className={styles.greeting}>Mi Portafolio</div>
-        <button className={styles.settingsButton}>
+        
+        {/* 3. Llama a la función de forma segura */}
+        <button 
+          className={styles.settingsButton} 
+          onClick={() => {
+            console.log("Click en settings!"); // <-- Agrega esto para depurar
+            if (onOpenSettings) onOpenSettings();
+          }}
+        >
           <Settings className="w-5 h-5" />
         </button>
       </div>
