@@ -6,7 +6,7 @@ import { desc } from 'drizzle-orm';
 import currency from 'currency.js';
 import { styles } from '../../screens/home/Home.styles';
 import { formatMXN } from '../../utils/formatters';
-import { MarketSparkline } from './MarketSparkline'; // <-- IMPORTAMOS EL GRÁFICO
+import { MarketSparkline } from './MarketSparkline';
 
 interface Props {
   assetId: string;
@@ -40,11 +40,9 @@ export const AssetDetails = ({ assetId, marketType, onBack, onEdit }: Props) => 
     setHistory(assetTxs);
   };
 
-  // Generador de trayectoria de mercado (Algoritmo visual)
   const generateChartData = (startPrice: number, endPrice: number) => {
     const points = [];
-    const steps = 24; // Puntos de la gráfica
-    // Añadimos un 2% de volatilidad simulada basada en el precio medio
+    const steps = 24; 
     const volatility = ((startPrice + endPrice) / 2) * 0.02; 
     
     for (let i = 0; i <= steps; i++) {
@@ -53,7 +51,6 @@ export const AssetDetails = ({ assetId, marketType, onBack, onEdit }: Props) => 
       else {
         const progress = i / steps;
         const base = startPrice + (endPrice - startPrice) * progress;
-        // Ruido aleatorio para simular velas/movimientos de mercado
         const noise = (Math.random() - 0.5) * volatility;
         points.push(base + noise);
       }
@@ -117,8 +114,22 @@ export const AssetDetails = ({ assetId, marketType, onBack, onEdit }: Props) => 
     );
   };
 
+  // 1. EL HOOK ESTÁ AHORA EN UNA ZONA SEGURA (Antes del return temprano)
+  // Evaluamos los valores internamente para no fallar si asset es null
+  const chartData = useMemo(() => {
+    if (!asset) return [];
+    const t = Number(asset.totalTitles ?? asset.total_titles) || 0;
+    const c = Number(asset.averageCost ?? asset.average_cost) || 0;
+    const p = Number(asset.currentPrice ?? asset.current_price) || c; 
+    const mkt = currency(t).multiply(p).value;
+    const cost = currency(t).multiply(c).value;
+    return generateChartData(cost, mkt);
+  }, [asset]);
+
+  // 2. RETORNO TEMPRANO AHORA SEGURO
   if (!asset) return null;
 
+  // 3. CONTINUAMOS CON LA LÓGICA DE LA UI
   const t = Number(asset.totalTitles ?? asset.total_titles) || 0;
   const c = Number(asset.averageCost ?? asset.average_cost) || 0;
   const p = Number(asset.currentPrice ?? asset.current_price) || c; 
@@ -128,10 +139,7 @@ export const AssetDetails = ({ assetId, marketType, onBack, onEdit }: Props) => 
   const isPositive = returnPct >= 0;
 
   const AssetIcon = marketType === 'GBM' ? Briefcase : Coins;
-  
-  // Memorizamos la data de la gráfica para evitar re-cálculos si el componente se re-renderiza
-  const chartData = useMemo(() => generateChartData(costValue, mktValue), [costValue, mktValue]);
-  const themeColor = isPositive ? '#34d399' : '#f43f5e'; // emerald-400 o rose-400
+  const themeColor = isPositive ? '#34d399' : '#f43f5e'; 
 
   return (
     <div className={styles.modalOverlay}>
@@ -155,7 +163,6 @@ export const AssetDetails = ({ assetId, marketType, onBack, onEdit }: Props) => 
           </span>
           <h1 className="text-white text-4xl font-bold tracking-tight relative z-10">{formatMXN(mktValue)}</h1>
           
-          {/* NUEVO: Gráfica tipo Neón */}
           <div className="w-full -mt-4 opacity-90 relative z-0">
             <MarketSparkline data={chartData} color={themeColor} />
           </div>

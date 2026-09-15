@@ -167,7 +167,7 @@ export default function Catalog() {
       </div>
 
       {/* DASHBOARD PRINCIPAL Y ASSET ALLOCATION */}
-      <div className="bg-slate-800/30 border border-slate-700/50 rounded-3xl p-6 mb-6 animate-fade-in">
+      <div className="bg-slate-800/30 border border-slate-700/50 rounded-3xl p-6 mb-6 animate-fade-in overflow-hidden">
         <div className="flex justify-between items-start mb-6">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -201,8 +201,10 @@ export default function Catalog() {
           </div>
         </div>
         
-        {/* <-- CAMBIO APLICADO AQUÍ: Componente Modular --> */}
-        <AllocationBar data={allocationsData} />
+        {/* <-- TRUCO DE UI: MÁRGENES NEGATIVOS PARA EXPANDIR A LOS LADOS --> */}
+        <div className="-mx-4"> 
+          <AllocationBar data={allocationsData} />
+        </div>
 
       </div>
 
