@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { X, Settings, ShoppingCart, Tag, HandCoins, Briefcase, Coins } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Settings, ShoppingCart, Tag, HandCoins, Briefcase, Coins, Loader2 } from 'lucide-react';
 import { useDB } from '../../db/DBContext';
 import { assets, transactions } from '../../db/schema';
 import { desc } from 'drizzle-orm';
@@ -19,26 +19,10 @@ export const AssetDetails = ({ assetId, marketType, onBack, onEdit }: Props) => 
   const { db } = useDB();
   const [asset, setAsset] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
-
-  useEffect(() => {
-    loadData();
-  }, [assetId, db]);
-
-  const loadData = async () => {
-    const allAssets = await db.select().from(assets);
-    const currentAsset = allAssets.find((a: any) => a.id === assetId);
-    setAsset(currentAsset);
-
-    const allTxs = await db.select().from(transactions).orderBy(desc(transactions.timestamp));
-    const assetTxs = allTxs.filter((tx: any) => {
-      if (tx.concept && tx.concept.includes(' | ')) {
-        const parts = tx.concept.split(' | ');
-        return parts[1] === assetId; 
-      }
-      return false;
-    });
-    setHistory(assetTxs);
-  };
+  
+  const [chartData, setChartData] = useState<number[]>([]);
+  const [isLoadingChart, setIsLoadingChart] = useState(true);
+  const [livePrice, setLivePrice] = useState<number | null>(null);
 
   const generateChartData = (startPrice: number, endPrice: number) => {
     const points = [];
@@ -57,6 +41,90 @@ export const AssetDetails = ({ assetId, marketType, onBack, onEdit }: Props) => 
     }
     return points;
   };
+
+  useEffect(() => {
+    const loadData = async () => {
+      const allAssets = await db.select().from(assets);
+      const currentAsset = allAssets.find((a: any) => a.id === assetId);
+      setAsset(currentAsset);
+
+      const allTxs = await db.select().from(transactions).orderBy(desc(transactions.timestamp));
+      const assetTxs = allTxs.filter((tx: any) => {
+        if (tx.concept && tx.concept.includes(' | ')) {
+          const parts = tx.concept.split(' | ');
+          return parts[1] === assetId; 
+        }
+        return false;
+      });
+      setHistory(assetTxs);
+    };
+    loadData();
+  }, [assetId, db]);
+
+  // MOTOR MULTI-PROXY OPTIMIZADO (Anti Rate-Limiting)
+  useEffect(() => {
+    const fetchRealHistory = async () => {
+      if (!asset) return;
+      setIsLoadingChart(true);
+      
+      try {
+        let cleanTicker = assetId.replace(/\*/g, '').replace(/\s+/g, '');
+        if (cleanTicker.includes('ISHRS')) cleanTicker = cleanTicker.replace('ISHRS', '');
+
+        let yfTicker = cleanTicker;
+        if (marketType === 'GBM') yfTicker = `${yfTicker}.MX`; 
+        else if (marketType === 'CRIPTO') yfTicker = `${yfTicker}-USD`; 
+
+        const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${yfTicker}?range=1mo&interval=1d`;
+        
+        // Batería de proxies de grado API, priorizando Codetabs que no tiene límite estricto de CORS
+        const proxies = [
+          `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`,
+          `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+          `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`
+        ];
+
+        let data = null;
+
+        for (const proxy of proxies) {
+          try {
+            const response = await fetch(proxy);
+            if (response.ok) {
+              const jsonData = await response.json();
+              if (jsonData?.chart?.result) {
+                data = jsonData;
+                break; // ¡Exito! Salimos del bucle
+              }
+            }
+          } catch (e) {
+            console.warn(`Proxy falló o fue bloqueado: ${proxy}`);
+            continue; // Intentamos con el siguiente proxy en la lista
+          }
+        }
+
+        if (!data) throw new Error('Todos los proxies fallaron (Rate Limiting o Bloqueo).');
+
+        const prices = data.chart.result[0].indicators.quote[0].close;
+        const validPrices = prices.filter((p: number | null) => p !== null);
+
+        if (validPrices.length < 2) throw new Error('Datos de bolsa insuficientes');
+
+        setChartData(validPrices); 
+        setLivePrice(validPrices[validPrices.length - 1]); 
+        
+      } catch (error) {
+        console.warn("API de mercado falló, activando simulador algorítmico:", error);
+        const c = Number(asset.averageCost ?? asset.average_cost) || 0;
+        const p = Number(asset.currentPrice ?? asset.current_price) || c;
+        setChartData(generateChartData(c, p));
+        setLivePrice(null); 
+      } finally {
+        setIsLoadingChart(false);
+      }
+    };
+
+    fetchRealHistory();
+  }, [asset, assetId, marketType]);
 
   const renderTransaction = (tx: any) => {
     const parts = tx.concept.split(' | ');
@@ -114,26 +182,15 @@ export const AssetDetails = ({ assetId, marketType, onBack, onEdit }: Props) => 
     );
   };
 
-  // 1. EL HOOK ESTÁ AHORA EN UNA ZONA SEGURA (Antes del return temprano)
-  // Evaluamos los valores internamente para no fallar si asset es null
-  const chartData = useMemo(() => {
-    if (!asset) return [];
-    const t = Number(asset.totalTitles ?? asset.total_titles) || 0;
-    const c = Number(asset.averageCost ?? asset.average_cost) || 0;
-    const p = Number(asset.currentPrice ?? asset.current_price) || c; 
-    const mkt = currency(t).multiply(p).value;
-    const cost = currency(t).multiply(c).value;
-    return generateChartData(cost, mkt);
-  }, [asset]);
-
-  // 2. RETORNO TEMPRANO AHORA SEGURO
   if (!asset) return null;
 
-  // 3. CONTINUAMOS CON LA LÓGICA DE LA UI
   const t = Number(asset.totalTitles ?? asset.total_titles) || 0;
   const c = Number(asset.averageCost ?? asset.average_cost) || 0;
-  const p = Number(asset.currentPrice ?? asset.current_price) || c; 
-  const mktValue = currency(t).multiply(p).value;
+  const dbPrice = Number(asset.currentPrice ?? asset.current_price) || c; 
+  
+  const currentActivePrice = livePrice !== null ? livePrice : dbPrice;
+
+  const mktValue = currency(t).multiply(currentActivePrice).value;
   const costValue = currency(t).multiply(c).value;
   const returnPct = costValue > 0 ? ((mktValue - costValue) / costValue) * 100 : 0;
   const isPositive = returnPct >= 0;
@@ -145,7 +202,6 @@ export const AssetDetails = ({ assetId, marketType, onBack, onEdit }: Props) => 
     <div className={styles.modalOverlay}>
       <div className={styles.modalCard}>
         
-        {/* HEADER */}
         <div className={styles.modalHeader}>
           <div className="flex items-center gap-2">
             <AssetIcon className="w-5 h-5 text-emerald-400" />
@@ -156,15 +212,23 @@ export const AssetDetails = ({ assetId, marketType, onBack, onEdit }: Props) => 
           </button>
         </div>
 
-        {/* MÉTRICAS DEL ACTIVO CON GRÁFICA INCRUSTADA */}
-        <div className="flex flex-col items-center justify-center mt-2 mb-2 w-full overflow-hidden">
+        <div className="flex flex-col items-center justify-center mt-2 mb-2 w-full overflow-hidden min-h-[180px]">
           <span className="text-slate-400 text-[10px] font-bold tracking-widest uppercase mb-1">
             Valor de Mercado
           </span>
-          <h1 className="text-white text-4xl font-bold tracking-tight relative z-10">{formatMXN(mktValue)}</h1>
+          <h1 className={`text-4xl font-bold tracking-tight relative z-10 transition-colors duration-500 ${livePrice !== null ? 'text-white' : 'text-slate-300'}`}>
+            {formatMXN(mktValue)}
+          </h1>
           
-          <div className="w-full -mt-4 opacity-90 relative z-0">
-            <MarketSparkline data={chartData} color={themeColor} />
+          <div className="w-full -mt-4 opacity-90 relative z-0 flex items-center justify-center h-32">
+            {isLoadingChart ? (
+              <div className="flex flex-col items-center justify-center text-slate-500 mt-4">
+                <Loader2 className="w-6 h-6 animate-spin mb-2" />
+                <span className="text-[9px] font-bold tracking-widest uppercase">Conectando al mercado...</span>
+              </div>
+            ) : (
+              <MarketSparkline data={chartData} color={themeColor} />
+            )}
           </div>
           
           <div className="flex items-center gap-3 mt-2 w-full bg-slate-900/50 p-3 rounded-xl border border-slate-800/50 relative z-10">
@@ -178,14 +242,13 @@ export const AssetDetails = ({ assetId, marketType, onBack, onEdit }: Props) => 
             </div>
             <div className="flex-1 text-center">
               <span className="block text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-0.5">Plusvalía</span>
-              <span className={`text-sm font-bold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+              <span className={`text-sm font-bold transition-colors duration-500 ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {isPositive ? '+' : ''}{returnPct.toFixed(2)}%
               </span>
             </div>
           </div>
         </div>
 
-        {/* ACCIONES Y KARDEX */}
         <div>
           <div className="flex justify-between items-center mb-4 mt-2">
             <h3 className="text-slate-400 text-[10px] font-bold tracking-widest uppercase">Historial de Operaciones</h3>
